@@ -1,0 +1,49 @@
+After 150 epochs of training:
+
+Validation: 0it [00:00, ?it/s]
+Validation:   0%|          | 0/7 [00:00<?, ?it/s]
+Validation DataLoader 0:   0%|          | 0/7 [00:00<?, ?it/s]
+Validation DataLoader 0:  14%|█▍        | 1/7 [00:00<00:00,  6.25it/s]
+Validation DataLoader 0:  29%|██▊       | 2/7 [00:00<00:00,  6.41it/s]
+Validation DataLoader 0:  43%|████▎     | 3/7 [00:00<00:00,  6.51it/s]
+Validation DataLoader 0:  57%|█████▋    | 4/7 [00:00<00:00,  6.53it/s]
+Validation DataLoader 0:  71%|███████▏  | 5/7 [00:00<00:00,  6.57it/s]
+Validation DataLoader 0:  86%|████████▌ | 6/7 [00:00<00:00,  6.58it/s]
+Validation DataLoader 0: 100%|██████████| 7/7 [00:01<00:00,  6.99it/s]
+Validation DataLoader 0: 100%|██████████| 7/7 [00:01<00:00,  6.93it/s]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃      Validate metric      ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│          val/CER          │    19.206911087036133     │
+│          val/DER          │     2.370403289794922     │
+│          val/IER          │     4.231280326843262     │
+│          val/SER          │    12.605228424072266     │
+│         val/loss          │    0.9644550681114197     │
+└───────────────────────────┴───────────────────────────┘
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+
+Testing: 0it [00:00, ?it/s]
+Testing:   0%|          | 0/1 [00:00<?, ?it/s]
+Testing DataLoader 0:   0%|          | 0/1 [00:00<?, ?it/s]
+Testing DataLoader 0: 100%|██████████| 1/1 [00:02<00:00,  2.74s/it]
+Testing DataLoader 0: 100%|██████████| 1/1 [00:02<00:00,  2.75s/it]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test/CER          │    23.168359756469727     │
+│         test/DER          │     2.420574903488159     │
+│         test/IER          │     4.214393615722656     │
+│         test/SER          │    16.533390045166016     │
+│         test/loss         │    1.1052342653274536     │
+└───────────────────────────┴───────────────────────────┘
+{'val_metrics': [{'val/loss': 0.9644550681114197,
+                  'val/CER': 19.206911087036133,
+                  'val/IER': 4.231280326843262,
+                  'val/DER': 2.370403289794922,
+                  'val/SER': 12.605228424072266}],
+ 'test_metrics': [{'test/loss': 1.1052342653274536,
+                   'test/CER': 23.168359756469727,
+                   'test/IER': 4.214393615722656,
+                   'test/DER': 2.420574903488159,
+                   'test/SER': 16.533390045166016}],
+ 'best_checkpoint': '/home/katiechung/ece147-final-proj/logs/2026-03-08/05-23-11/checkpoints/epoch=99-step=12000.ckpt'}
