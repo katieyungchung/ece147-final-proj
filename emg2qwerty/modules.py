@@ -278,3 +278,54 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+from collections.abc import Sequence
+
+class RNNEncoder(torch.nn.Module):
+    def __init__(self, num_features, hidden_size=384, num_layers=3, dropout=0.2):
+        super().__init__()
+        self.rnn = torch.nn.RNN(
+            input_size=num_features,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            bidirectional=True,
+            batch_first=False,
+        )
+        self.proj = torch.nn.Linear(hidden_size * 2, num_features)
+        self.layer_norm = torch.nn.LayerNorm(num_features)
+
+    def forward(self, inputs):
+        x, _ = self.rnn(inputs)
+        x = self.proj(x)
+        return self.layer_norm(x)
+
+
+class CNNRNNEncoder(torch.nn.Module):
+    def __init__(self, num_features, block_channels=(24,24), kernel_width=32,
+                 hidden_size=384, num_rnn_layers=2, dropout=0.2):
+        super().__init__()
+        tds_blocks = []
+        for channels in block_channels:
+            tds_blocks.extend([
+                TDSConv2dBlock(channels, num_features // channels, kernel_width),
+                TDSFullyConnectedBlock(num_features),
+            ])
+        self.cnn = torch.nn.Sequential(*tds_blocks)
+        self.rnn = torch.nn.RNN(
+            input_size=num_features,
+            hidden_size=hidden_size,
+            num_layers=num_rnn_layers,
+            dropout=dropout if num_rnn_layers > 1 else 0.0,
+            bidirectional=True,
+            batch_first=False,
+        )
+        self.proj = torch.nn.Linear(hidden_size * 2, num_features)
+        self.layer_norm = torch.nn.LayerNorm(num_features)
+
+    def forward(self, inputs):
+        x = self.cnn(inputs)
+        x, _ = self.rnn(x)
+        x = self.proj(x)
+        return self.layer_norm(x)

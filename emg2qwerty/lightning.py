@@ -25,6 +25,8 @@ from emg2qwerty.modules import (
     MultiBandRotationInvariantMLP,
     SpectrogramNorm,
     TDSConvEncoder,
+    RNNEncoder,
+    CNNRNNEncoder,
 )
 from emg2qwerty.transforms import Transform
 
@@ -269,3 +271,53 @@ class TDSConvCTCModule(pl.LightningModule):
             optimizer_config=self.hparams.optimizer,
             lr_scheduler_config=self.hparams.lr_scheduler,
         )
+
+
+class CNNRNNCTCModule(TDSConvCTCModule):
+    def __init__(self, in_features, mlp_features, block_channels, kernel_width,
+                 hidden_size, num_rnn_layers, dropout, optimizer, lr_scheduler, decoder):
+        super(TDSConvCTCModule, self).__init__()
+        self.save_hyperparameters()
+        num_features = self.NUM_BANDS * mlp_features[-1]
+        self.model = nn.Sequential(
+            SpectrogramNorm(channels=self.NUM_BANDS * self.ELECTRODE_CHANNELS),
+            MultiBandRotationInvariantMLP(in_features=in_features,
+                mlp_features=mlp_features, num_bands=self.NUM_BANDS),
+            nn.Flatten(start_dim=2),
+            CNNRNNEncoder(num_features=num_features, block_channels=block_channels,
+                kernel_width=kernel_width, hidden_size=hidden_size,
+                num_rnn_layers=num_rnn_layers, dropout=dropout),
+            nn.Linear(num_features, charset().num_classes),
+            nn.LogSoftmax(dim=-1),
+        )
+        self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
+        self.decoder = instantiate(decoder)
+        metrics = MetricCollection([CharacterErrorRates()])
+        self.metrics = nn.ModuleDict({
+            f"{phase}_metrics": metrics.clone(prefix=f"{phase}/")
+            for phase in ["train", "val", "test"]
+        })
+
+class RNNCTCModule(TDSConvCTCModule):
+    def __init__(self, in_features, mlp_features, hidden_size, num_layers,
+                 dropout, optimizer, lr_scheduler, decoder):
+        super(TDSConvCTCModule, self).__init__()
+        self.save_hyperparameters()
+        num_features = self.NUM_BANDS * mlp_features[-1]
+        self.model = nn.Sequential(
+            SpectrogramNorm(channels=self.NUM_BANDS * self.ELECTRODE_CHANNELS),
+            MultiBandRotationInvariantMLP(in_features=in_features,
+                mlp_features=mlp_features, num_bands=self.NUM_BANDS),
+            nn.Flatten(start_dim=2),
+            RNNEncoder(num_features=num_features, hidden_size=hidden_size,
+                num_layers=num_layers, dropout=dropout),
+            nn.Linear(num_features, charset().num_classes),
+            nn.LogSoftmax(dim=-1),
+        )
+        self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
+        self.decoder = instantiate(decoder)
+        metrics = MetricCollection([CharacterErrorRates()])
+        self.metrics = nn.ModuleDict({
+            f"{phase}_metrics": metrics.clone(prefix=f"{phase}/")
+            for phase in ["train", "val", "test"]
+        })
