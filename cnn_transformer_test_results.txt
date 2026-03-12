@@ -1,0 +1,183 @@
+[2026-03-12 00:29:19,363][__main__][INFO] - 
+Config:
+user: single_user
+dataset:
+  train:
+  - user: 89335547
+    session: 2021-06-03-1622765527-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-02-1622681518-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-04-1622863166-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-22-1627003020-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-21-1626916256-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-22-1627004019-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-05-1622885888-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-02-1622679967-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-03-1622764398-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-21-1626917264-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-05-1622889105-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-03-1622766673-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-04-1622861066-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-22-1627001995-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-05-1622884635-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-21-1626915176-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  val:
+  - user: 89335547
+    session: 2021-06-04-1622862148-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  test:
+  - user: 89335547
+    session: 2021-06-02-1622682789-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  root: ${hydra:runtime.cwd}/data
+to_tensor:
+  _target_: emg2qwerty.transforms.ToTensor
+  fields:
+  - emg_left
+  - emg_right
+band_rotation:
+  _target_: emg2qwerty.transforms.ForEach
+  transform:
+    _target_: emg2qwerty.transforms.RandomBandRotation
+    offsets:
+    - -1
+    - 0
+    - 1
+temporal_jitter:
+  _target_: emg2qwerty.transforms.TemporalAlignmentJitter
+  max_offset: 120
+logspec:
+  _target_: emg2qwerty.transforms.LogSpectrogram
+  n_fft: 64
+  hop_length: 16
+specaug:
+  _target_: emg2qwerty.transforms.SpecAugment
+  n_time_masks: 3
+  time_mask_param: 25
+  n_freq_masks: 2
+  freq_mask_param: 4
+transforms:
+  train:
+  - ${to_tensor}
+  - ${band_rotation}
+  - ${temporal_jitter}
+  - ${logspec}
+  - ${specaug}
+  val:
+  - ${to_tensor}
+  - ${logspec}
+  test: ${transforms.val}
+module:
+  _target_: emg2qwerty.lightning.CNNTransformerCTCModule
+  in_features: 528
+  mlp_features:
+  - 384
+  cnn_channels:
+  - 256
+  - 256
+  cnn_kernel_size: 3
+  cnn_stride: 2
+  d_model: 256
+  nhead: 4
+  num_transformer_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.1
+datamodule:
+  _target_: emg2qwerty.lightning.WindowedEMGDataModule
+  window_length: 8000
+  padding:
+  - 1800
+  - 200
+  test_window_length: 8000
+  test_padding:
+  - 1800
+  - 200
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.001
+lr_scheduler:
+  scheduler:
+    _target_: pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR
+    warmup_epochs: 10
+    max_epochs: ${trainer.max_epochs}
+    warmup_start_lr: 1.0e-08
+    eta_min: 1.0e-06
+  interval: epoch
+decoder:
+  _target_: emg2qwerty.decoder.CTCGreedyDecoder
+seed: 1501
+batch_size: 32
+num_workers: 4
+train: false
+checkpoint: logs/2026-03-12/00-00-23/checkpoints/last.ckpt
+monitor_metric: val/CER
+monitor_mode: min
+trainer:
+  accelerator: gpu
+  devices: 1
+  num_nodes: 1
+  max_epochs: 150
+  default_root_dir: ${hydra:runtime.output_dir}
+callbacks:
+- _target_: pytorch_lightning.callbacks.LearningRateMonitor
+- _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  dirpath: ${hydra:runtime.output_dir}/checkpoints
+  monitor: ${monitor_metric}
+  mode: ${monitor_mode}
+  save_last: true
+  verbose: true
+
+Global seed set to 1501
+[2026-03-12 00:29:19,364][__main__][INFO] - Instantiating LightningModule {'_target_': 'emg2qwerty.lightning.CNNTransformerCTCModule', 'in_features': 528, 'mlp_features': [384], 'cnn_channels': [256, 256], 'cnn_kernel_size': 3, 'cnn_stride': 2, 'd_model': 256, 'nhead': 4, 'num_transformer_layers': 4, 'dim_feedforward': 1024, 'dropout': 0.1}
+[2026-03-12 00:29:19,440][__main__][INFO] - Loading module from checkpoint logs/2026-03-12/00-00-23/checkpoints/last.ckpt
+[2026-03-12 00:29:19,533][__main__][INFO] - Instantiating LightningDataModule {'_target_': 'emg2qwerty.lightning.WindowedEMGDataModule', 'window_length': 8000, 'padding': [1800, 200], 'test_window_length': 8000, 'test_padding': [1800, 200]}
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+IPU available: False, using: 0 IPUs
+HPU available: False, using: 0 HPUs
+Missing logger folder: /home/katiechung/ece147-final-proj/logs/2026-03-12/00-29-19/lightning_logs
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+Validation: 0it [00:00, ?it/s]Validation:   0%|          | 0/7 [00:00<?, ?it/s]Validation DataLoader 0:   0%|          | 0/7 [00:00<?, ?it/s]Validation DataLoader 0:  14%|█▍        | 1/7 [00:00<00:05,  1.13it/s]Validation DataLoader 0:  29%|██▊       | 2/7 [00:00<00:02,  2.07it/s]Validation DataLoader 0:  43%|████▎     | 3/7 [00:01<00:01,  2.86it/s]Validation DataLoader 0:  57%|█████▋    | 4/7 [00:01<00:00,  3.54it/s]Validation DataLoader 0:  71%|███████▏  | 5/7 [00:01<00:00,  4.20it/s]Validation DataLoader 0:  86%|████████▌ | 6/7 [00:01<00:00,  4.81it/s]Validation DataLoader 0: 100%|██████████| 7/7 [00:01<00:00,  5.44it/s]Validation DataLoader 0: 100%|██████████| 7/7 [00:01<00:00,  5.41it/s]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃      Validate metric      ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│          val/CER          │    14.975631713867188     │
+│          val/DER          │     2.281790018081665     │
+│          val/IER          │    3.8768277168273926     │
+│          val/SER          │     8.81701374053955      │
+│         val/loss          │    0.5151906609535217     │
+└───────────────────────────┴───────────────────────────┘
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+Testing: 0it [00:00, ?it/s]Testing:   0%|          | 0/9 [00:00<?, ?it/s]Testing DataLoader 0:   0%|          | 0/9 [00:00<?, ?it/s]Testing DataLoader 0:  11%|█         | 1/9 [00:00<00:00, 13.87it/s]Testing DataLoader 0:  22%|██▏       | 2/9 [00:00<00:00, 13.00it/s]Testing DataLoader 0:  33%|███▎      | 3/9 [00:00<00:00, 12.99it/s]Testing DataLoader 0:  44%|████▍     | 4/9 [00:00<00:00, 13.89it/s]Testing DataLoader 0:  56%|█████▌    | 5/9 [00:00<00:00, 14.42it/s]Testing DataLoader 0:  67%|██████▋   | 6/9 [00:00<00:00, 14.78it/s]Testing DataLoader 0:  78%|███████▊  | 7/9 [00:00<00:00, 15.00it/s]Testing DataLoader 0:  89%|████████▉ | 8/9 [00:00<00:00, 15.28it/s]Testing DataLoader 0: 100%|██████████| 9/9 [00:00<00:00, 15.76it/s]Testing DataLoader 0: 100%|██████████| 9/9 [00:00<00:00, 15.56it/s]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test/CER          │     17.43178939819336     │
+│         test/DER          │    2.3170204162597656     │
+│         test/IER          │     4.893893241882324     │
+│         test/SER          │    10.220874786376953     │
+│         test/loss         │    0.5922418236732483     │
+└───────────────────────────┴───────────────────────────┘
+{'val_metrics': [{'val/loss': 0.5151906609535217,
+                  'val/CER': 14.975631713867188,
+                  'val/IER': 3.8768277168273926,
+                  'val/DER': 2.281790018081665,
+                  'val/SER': 8.81701374053955}],
+ 'test_metrics': [{'test/loss': 0.5922418236732483,
+                   'test/CER': 17.43178939819336,
+                   'test/IER': 4.893893241882324,
+                   'test/DER': 2.3170204162597656,
+                   'test/SER': 10.220874786376953}],
+ 'best_checkpoint': ''}

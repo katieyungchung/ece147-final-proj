@@ -1,0 +1,22 @@
+# @package _global_
+# CNN layers -> Transformer encoder -> Linear -> CTC for surface EMG.
+module:
+  _target_: emg2qwerty.lightning.CNNTransformerCTCModule
+  in_features: 528  # (n_fft//2 + 1) * 16
+  mlp_features: [384]
+  cnn_channels: [256, 256]   # two conv layers, each stride 2 -> 4x shorter sequence
+  cnn_kernel_size: 3
+  cnn_stride: 2
+  d_model: 256
+  nhead: 4
+  num_transformer_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.1
+
+datamodule:
+  _target_: emg2qwerty.lightning.WindowedEMGDataModule
+  window_length: 8000
+  padding: [1800, 200]
+  # Windowed test avoids OOM from Transformer O(T^2) on full-session length
+  test_window_length: 8000
+  test_padding: [1800, 200]

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 import torch
 from torch import nn
+import math
 
 
 class SpectrogramNorm(nn.Module):
@@ -278,3 +279,85 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+class SinusoidalPositionalEncoding(nn.Module):
+    """Sinusoidal positional encoding for Transformer. Supports arbitrary length at test time."""
+
+    def __init__(self, d_model: int, max_len: int = 4096, dropout: float = 0.0) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+        self.dropout = nn.Dropout(dropout)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2, dtype=torch.float32) * (-math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe, persistent=False)
+
+    def _pe_for_length(self, T: int, device: torch.device) -> torch.Tensor:
+        pe = torch.zeros(T, self.d_model, device=device, dtype=torch.float32)
+        position = torch.arange(0, T, device=device, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, self.d_model, 2, device=device, dtype=torch.float32)
+            * (-math.log(10000.0) / self.d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        T = x.size(0)
+        if T <= self.pe.size(0):
+            pe = self.pe[:T].to(x.device)
+        else:
+            pe = self._pe_for_length(T, x.device)
+        return self.dropout(x + pe.unsqueeze(1))
+
+
+class CNN1DEncoder(nn.Module):
+    """Stack of 1D conv layers along time for surface EMG. (T, N, C_in) -> (T', N, C_out)."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        channels: Sequence[int] = (256, 256),
+        kernel_size: int = 3,
+        stride: int = 2,
+    ) -> None:
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.num_layers = len(channels)
+        padding = kernel_size // 2
+        layers: list[nn.Module] = []
+        prev = in_channels
+        for i, c in enumerate(channels):
+            layers.append(
+                nn.Conv1d(prev, c, kernel_size=kernel_size, stride=stride, padding=padding)
+            )
+            layers.append(nn.ReLU())
+            layers.append(nn.BatchNorm1d(c))
+            prev = c
+        self.conv = nn.Sequential(*layers)
+        self.proj = nn.Linear(prev, out_channels)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (T, N, C_in)
+        T, N, C = x.shape
+        x = x.permute(1, 2, 0)  # (N, C, T)
+        x = self.conv(x)  # (N, C_out, T')
+        x = x.permute(2, 0, 1)  # (T', N, C_out)
+        return self.proj(x)  # (T', N, out_channels)
+
+    @staticmethod
+    def output_lengths(input_lengths: torch.Tensor, num_layers: int, kernel_size: int, stride: int) -> torch.Tensor:
+        padding = kernel_size // 2
+        out = input_lengths
+        for _ in range(num_layers):
+            out = (out + 2 * padding - kernel_size) // stride + 1
+            out = torch.clamp(out, min=1)
+        return out
