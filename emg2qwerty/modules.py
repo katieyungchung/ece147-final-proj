@@ -278,3 +278,32 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+class CNNLSTMEncoder(torch.nn.Module):
+    def __init__(self, num_features, block_channels = (24, 24, 24, 24), kernel_width = 32,
+                 hidden_size = 384, num_layers = 1, bias = False, dropout = 0, bidirectional = False):
+        super().__init__()
+        self.tds_conv_blocks = TDSConvEncoder(num_features, block_channels, kernel_width)
+        self.lstm = torch.nn.LSTM(
+            input_size = num_features,
+            hidden_size = hidden_size,
+            num_layers = num_layers,
+            bias = bias,
+            dropout = dropout,
+            bidirectional = bidirectional,
+            batch_first = False
+        )
+        self.proj = torch.nn.Linear(hidden_size * (2 if bidirectional else 1), num_features)
+        self.layer_norm = nn.LayerNorm(num_features)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        x = self.tds_conv_blocks(inputs)
+        # On the L4 GPU I was using in gcloud, there seems to be issues with
+        # the cuDNN implementation of LSTM specifically with batch size 1
+        use_cudnn = x.shape[1] > 1  
+        with torch.backends.cudnn.flags(enabled=use_cudnn):
+            x, _ = self.lstm(x.contiguous())
+        x = self.proj(x)
+        return self.layer_norm(x)
+

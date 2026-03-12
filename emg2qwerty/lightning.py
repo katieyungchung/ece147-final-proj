@@ -25,6 +25,7 @@ from emg2qwerty.modules import (
     MultiBandRotationInvariantMLP,
     SpectrogramNorm,
     TDSConvEncoder,
+    CNNLSTMEncoder
 )
 from emg2qwerty.transforms import Transform
 
@@ -135,6 +136,7 @@ class WindowedEMGDataModule(pl.LightningDataModule):
             pin_memory=True,
             persistent_workers=True,
         )
+
 
 
 class TDSConvCTCModule(pl.LightningModule):
@@ -268,4 +270,71 @@ class TDSConvCTCModule(pl.LightningModule):
             self.parameters(),
             optimizer_config=self.hparams.optimizer,
             lr_scheduler_config=self.hparams.lr_scheduler,
+        )
+
+class CNN_LSTM_Module(TDSConvCTCModule):
+
+    def __init__(
+            self,
+            in_features: int,
+            mlp_features: Sequence[int],
+            block_channels: Sequence[int],
+            kernel_width: int,
+            
+            optimizer: DictConfig,
+            lr_scheduler: DictConfig,
+            decoder: DictConfig,
+            
+            hidden_size = 384, 
+            num_layers = 1, 
+            bias = False, 
+            dropout = 0, 
+            bidirectional = False,
+        ) -> None:
+        super(TDSConvCTCModule, self).__init__()
+        self.save_hyperparameters()
+
+        num_features = self.NUM_BANDS * mlp_features[-1]
+
+        # Model
+        # inputs: (T, N, bands=2, electrode_channels=16, freq)
+        self.model = nn.Sequential(
+            # (T, N, bands=2, C=16, freq)
+            SpectrogramNorm(channels=self.NUM_BANDS * self.ELECTRODE_CHANNELS),
+            # (T, N, bands=2, mlp_features[-1])
+            MultiBandRotationInvariantMLP(
+                in_features=in_features,
+                mlp_features=mlp_features,
+                num_bands=self.NUM_BANDS,
+            ),
+            # (T, N, num_features)
+            nn.Flatten(start_dim=2),
+            CNNLSTMEncoder(
+                num_features=num_features,
+                block_channels=block_channels,
+                kernel_width=kernel_width,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                bias=bias,
+                dropout=dropout,
+                bidirectional=bidirectional
+            ),
+            # (T, N, num_classes)
+            nn.Linear(num_features, charset().num_classes),
+            nn.LogSoftmax(dim=-1),
+        )
+
+        # Criterion
+        self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
+
+        # Decoder
+        self.decoder = instantiate(decoder)
+
+        # Metrics
+        metrics = MetricCollection([CharacterErrorRates()])
+        self.metrics = nn.ModuleDict(
+            {
+                f"{phase}_metrics": metrics.clone(prefix=f"{phase}/")
+                for phase in ["train", "val", "test"]
+            }
         )

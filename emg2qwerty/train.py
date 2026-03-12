@@ -4,6 +4,18 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import torch
+from functools import partial
+
+# In my environment I was having issues with saving and loading model
+# checkpoints, where the error message was telling me to set the weights_only
+# kwarg to False. Despite the bottom two lines almost working, I was still
+# having issues with hydra multirun, so ultimately the solution was to set
+# the TORCH_FORCE_NO_WIEGHTS_ONLY_LOAD environment variable to true via
+# export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true
+_original_load = torch.load
+torch.load = partial(_original_load, weights_only=False)
+
 import logging
 import os
 import pprint
@@ -14,7 +26,8 @@ from typing import Any
 import hydra
 import pytorch_lightning as pl
 from hydra.utils import get_original_cwd, instantiate
-from omegaconf import DictConfig, ListConfig, OmegaConf
+
+from omegaconf import ListConfig, DictConfig, OmegaConf
 
 from emg2qwerty import transforms, utils
 from emg2qwerty.transforms import Transform
@@ -69,6 +82,7 @@ def main(config: DictConfig):
             optimizer=config.optimizer,
             lr_scheduler=config.lr_scheduler,
             decoder=config.decoder,
+            weights_only = False
         )
 
     # Instantiate LightningDataModule
@@ -105,10 +119,11 @@ def main(config: DictConfig):
 
         # Train
         trainer.fit(module, datamodule, ckpt_path=resume_from_checkpoint)
-
+        
         # Load best checkpoint
         module = module.load_from_checkpoint(
-            trainer.checkpoint_callback.best_model_path
+            trainer.checkpoint_callback.best_model_path,
+            weights_only = False
         )
 
     # Validate and test on the best checkpoint (if training), or on the
