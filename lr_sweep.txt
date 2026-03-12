@@ -1,0 +1,4 @@
+[2026-03-12 23:08:36,679][HYDRA] Submitit 'local' sweep output dir : logs/2026-03-12/23-08-36
+[2026-03-12 23:08:36,680][HYDRA] 	#0 : model=cnn_transformer_ctc trainer.max_epochs=40 batch_size=16 optimizer.lr=0.001
+[2026-03-12 23:08:36,686][HYDRA] 	#1 : model=cnn_transformer_ctc trainer.max_epochs=40 batch_size=16 optimizer.lr=0.0005
+[2026-03-12 23:08:36,691][HYDRA] 	#2 : model=cnn_transformer_ctc trainer.max_epochs=40 batch_size=16 optimizer.lr=0.0002
