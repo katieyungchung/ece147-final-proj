@@ -1,0 +1,15 @@
+# @package _global_
+module:
+  _target_: emg2qwerty.lightning.TransformerModule
+  in_features: 528  # freq * channels = (n_fft // 2 + 1) * 16
+  mlp_features: [384]
+  nhead: 8 # dimensions per self attention head: num_features/nhead
+  dim_feedforward: 1024
+  num_layers: 4
+  dropout: 0.1
+  activation: "relu" # same activation used in 'All You Need is Attention'
+
+datamodule:
+  _target_: emg2qwerty.lightning.WindowedEMGDataModule
+  window_length: 8000  # 4 sec windows for 2kHz EMG
+  padding: [1800, 200]  # 900ms past context, 100ms future context

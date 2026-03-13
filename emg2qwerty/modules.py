@@ -9,6 +9,7 @@ from collections.abc import Sequence
 import torch
 from torch import nn
 
+import math
 
 class SpectrogramNorm(nn.Module):
     """A `torch.nn.Module` that applies 2D batch normalization over spectrogram
@@ -278,3 +279,100 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+class PositionalEncoding(torch.nn.Module):
+    """
+    Positional encoding is required for tranformer models operating on sequence data. 
+    This positional encoding is taken from the pytorch examples script for transformers
+    on language models:
+
+    https://github.com/pytorch/examples/blob/main/word_language_model/model.py
+    """
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super().__init__()
+        self.dropout = torch.nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model) 
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe) 
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
+    
+class SinusoidalPositionalEncoding(nn.Module):
+    """Sinusoidal positional encoding for Transformer. Supports arbitrary length at test time."""
+
+    def __init__(self, d_model: int, max_len: int = 4096, dropout: float = 0.0) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+        self.dropout = nn.Dropout(dropout)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2, dtype=torch.float32) * (-math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe, persistent=False)
+
+    def _pe_for_length(self, T: int, device: torch.device) -> torch.Tensor:
+        pe = torch.zeros(T, self.d_model, device=device, dtype=torch.float32)
+        position = torch.arange(0, T, device=device, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, self.d_model, 2, device=device, dtype=torch.float32)
+            * (-math.log(10000.0) / self.d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        T = x.size(0)
+        if T <= self.pe.size(0):
+            pe = self.pe[:T].to(x.device)
+        else:
+            pe = self._pe_for_length(T, x.device)
+        return self.dropout(x + pe.unsqueeze(1))
+
+class TransformerEncoder(nn.Module):
+    def __init__(
+        self,
+        num_features: int,
+        nhead: int = 8,
+        num_layers: int = 2,
+        dim_feedforward: int = 1024,
+        dropout: float = 0.1,
+        activation: str = "relu"
+    ):
+        super().__init__()
+        self.pos = SinusoidalPositionalEncoding(num_features, dropout=dropout)
+        enc = nn.TransformerEncoderLayer(
+            d_model=num_features,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            activation=activation,
+            batch_first=False
+        )
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer=enc,
+            num_layers=num_layers
+        )
+        self.layer_norm = nn.LayerNorm(num_features)
+        
+    def forward(self, x: torch.Tensor, lengths: torch.Tensor = None) -> torch.Tensor:
+        # Since sequences within a batch are variable length, shorter sequecnes get padded
+        # to match the length of the longest sequence. Hence, the mask is important to avoid
+        # wasted computation
+        src_key_padding_mask = None
+        if lengths is not None:
+            T, N, _ = x.shape
+            src_key_padding_mask = torch.arange(T, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
+        x = self.pos(x)
+        x = self.transformer(x, src_key_padding_mask=src_key_padding_mask)
+        return self.layer_norm(x)
