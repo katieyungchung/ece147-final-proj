@@ -25,7 +25,8 @@ from emg2qwerty.modules import (
     MultiBandRotationInvariantMLP,
     SpectrogramNorm,
     TDSConvEncoder,
-    TransformerEncoder
+    TransformerEncoder,
+    RoPETransformerEncoder
 )
 from emg2qwerty.transforms import Transform
 
@@ -94,6 +95,8 @@ class WindowedEMGDataModule(pl.LightningDataModule):
                     # at test time for more realism
                     window_length=None,
                     padding=(0, 0),
+                    # window_length=self.window_length,
+                    # padding=self.padding,
                     jitter=False,
                 )
                 for hdf5_path in self.test_sessions
@@ -305,7 +308,7 @@ class TransformerModule(TDSConvCTCModule):
         # The pytorch Transformer module includes a decoder and as such is for
         # sequence to sequence tasks, but since we have already chosen CTC decoding
         # just use the encoder part of the transformer that only looks at one sequence
-        self.transformer = TransformerEncoder(
+        self.transformer = RoPETransformerEncoder(
             num_features=num_features,
             nhead=nhead,
             dim_feedforward=dim_feedforward,

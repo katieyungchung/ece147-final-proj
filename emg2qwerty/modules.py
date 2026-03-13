@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 import math
+import torch.nn.functional as F
 
 class SpectrogramNorm(nn.Module):
     """A `torch.nn.Module` that applies 2D batch normalization over spectrogram
@@ -279,29 +280,6 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
-
-class PositionalEncoding(torch.nn.Module):
-    """
-    Positional encoding is required for tranformer models operating on sequence data. 
-    This positional encoding is taken from the pytorch examples script for transformers
-    on language models:
-
-    https://github.com/pytorch/examples/blob/main/word_language_model/model.py
-    """
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
-        super().__init__()
-        self.dropout = torch.nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model) 
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe) 
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.pe[:x.size(0)]
-        return self.dropout(x)
     
 class SinusoidalPositionalEncoding(nn.Module):
     """Sinusoidal positional encoding for Transformer. Supports arbitrary length at test time."""
@@ -338,7 +316,7 @@ class SinusoidalPositionalEncoding(nn.Module):
         else:
             pe = self._pe_for_length(T, x.device)
         return self.dropout(x + pe.unsqueeze(1))
-
+    
 class TransformerEncoder(nn.Module):
     def __init__(
         self,
@@ -375,4 +353,143 @@ class TransformerEncoder(nn.Module):
             src_key_padding_mask = torch.arange(T, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
         x = self.pos(x)
         x = self.transformer(x, src_key_padding_mask=src_key_padding_mask)
+        return self.layer_norm(x)
+    
+
+
+class RotaryEmbedding(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        # Precompute inverse frequencies
+        inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer("inv_freq", inv_freq)
+
+    def forward(self, T, device):
+        t = torch.arange(T, device=device).double()  # float64 for precision
+        freqs = torch.outer(t, self.inv_freq.double())
+        emb = torch.cat([freqs, freqs], dim=-1)
+        # Cast back to float32 for the actual computation
+        return emb.cos().float(), emb.sin().float()
+    
+
+def rotate_half(x):
+    """Rotate the second half of the last dimension."""
+    half = x.shape[-1] // 2
+    x1, x2 = x[..., :half], x[..., half:]
+    return torch.cat([-x2, x1], dim=-1)
+
+def apply_rotary_emb(q, k, cos, sin):
+    """Apply RoPE to queries and keys."""
+    # q, k: (T, N, num_heads, head_dim)
+    # cos, sin: (T, head_dim) -> unsqueeze for broadcasting
+    cos = cos[:, None, None, :]  # (T, 1, 1, head_dim)
+    sin = sin[:, None, None, :]
+    q = (q * cos) + (rotate_half(q) * sin)
+    k = (k * cos) + (rotate_half(k) * sin)
+    return q, k
+
+class RoPEMultiheadAttention(nn.Module):
+    """
+        Unfortunately, there isn't a great way to do RoPE with nn.TransformerEncoderLayer,
+        since it requires a modification to the multihead attention implementation, hence
+        this modified version. Looking at various implementations around the web it seems
+        like there is a general apprehension towards using the F.scaled_dot_product_attention
+        since the original RoFormer paper brings up concerns about division by zero, but
+        it looks like to me, this concern is brought up with regards to linear attention,
+        and the original self-attention should not have this same issue.
+    """
+    def __init__(self, d_model, nhead, dropout=0.0):
+        super().__init__()
+        assert d_model % nhead == 0
+        self.d_model = d_model
+        self.nhead = nhead
+        self.head_dim = d_model // nhead
+
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+
+        self.rope = RotaryEmbedding(self.head_dim)
+        self.dropout = dropout  # store as float, not nn.Dropout
+
+    def forward(self, x, key_padding_mask=None):
+        T, N, _ = x.shape
+
+        q = self.q_proj(x).reshape(T, N, self.nhead, self.head_dim)
+        k = self.k_proj(x).reshape(T, N, self.nhead, self.head_dim)
+        v = self.v_proj(x).reshape(T, N, self.nhead, self.head_dim)
+
+        # Apply RoPE to q and k
+        cos, sin = self.rope(T, x.device)
+        q, k = apply_rotary_emb(q, k, cos, sin)
+
+        # Reshape to (N, nhead, T, head_dim) for SDPA
+        q = q.permute(1, 2, 0, 3)
+        k = k.permute(1, 2, 0, 3)
+        v = v.permute(1, 2, 0, 3)
+
+        # Convert key_padding_mask to attention mask format SDPA expects
+        attn_mask = None
+        if key_padding_mask is not None:
+            # SDPA expects (N, nhead, T, T) or broadcastable — additive mask
+            attn_mask = ~key_padding_mask[:, None, None, :]  # (N, 1, 1, T)
+
+        # scaled_dot_product_attention handles scaling, softmax, and dropout
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=attn_mask,
+            dropout_p=self.dropout if self.training else 0.0,
+        )
+
+        out = out.permute(2, 0, 1, 3)          # (T, N, nhead, head_dim)
+        out = out.reshape(T, N, self.d_model)
+        return self.out_proj(out)
+    
+
+    
+class RoPETransformerEncoderLayer(nn.Module):
+    """Drop-in replacement for nn.TransformerEncoderLayer with RoPE."""
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation="relu"):
+        super().__init__()
+        self.self_attn = RoPEMultiheadAttention(d_model, nhead, dropout)
+
+        self.ff = nn.Sequential(
+            nn.Linear(d_model, dim_feedforward),
+            nn.ReLU() if activation == "relu" else nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, d_model),
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, key_padding_mask=None):
+        x = x + self.dropout(self.self_attn(self.norm1(x), key_padding_mask))
+        x = x + self.dropout(self.ff(self.norm2(x)))
+        return x
+
+class RoPETransformerEncoder(nn.Module):
+    def __init__(self, num_features, nhead=8, num_layers=2,
+                 dim_feedforward=2048, dropout=0.1, activation="relu"):
+        super().__init__()
+        self.input_proj = TDSFullyConnectedBlock(num_features)
+        self.layers = nn.ModuleList([
+            RoPETransformerEncoderLayer(num_features, nhead, dim_feedforward, dropout, activation)
+            for _ in range(num_layers)
+        ])
+        self.layer_norm = nn.LayerNorm(num_features)
+        self.input_dropout = nn.Dropout(dropout)
+
+    def forward(self, inputs: torch.Tensor, lengths=None) -> torch.Tensor:
+        src_key_padding_mask = None
+        if lengths is not None:
+            T, N, _ = inputs.shape
+            src_key_padding_mask = (
+                torch.arange(T, device=inputs.device).unsqueeze(0) >= lengths.unsqueeze(1)
+            )
+        x = self.input_proj(inputs)
+        x = self.input_dropout(x)
+        for layer in self.layers:
+            x = layer(x, key_padding_mask=src_key_padding_mask)
         return self.layer_norm(x)
