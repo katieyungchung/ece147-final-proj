@@ -1,0 +1,181 @@
+[2026-03-13 05:08:32,053][__main__][INFO] - 
+Config:
+user: single_user
+dataset:
+  train:
+  - user: 89335547
+    session: 2021-06-03-1622765527-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-02-1622681518-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-04-1622863166-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-22-1627003020-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-21-1626916256-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-22-1627004019-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-05-1622885888-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-02-1622679967-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-03-1622764398-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-21-1626917264-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-05-1622889105-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-03-1622766673-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-04-1622861066-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-22-1627001995-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-06-05-1622884635-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  - user: 89335547
+    session: 2021-07-21-1626915176-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  val:
+  - user: 89335547
+    session: 2021-06-04-1622862148-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  test:
+  - user: 89335547
+    session: 2021-06-02-1622682789-keystrokes-dca-study@1-0efbe614-9ae6-4131-9192-4398359b4f5f
+  root: ${hydra:runtime.cwd}/data
+to_tensor:
+  _target_: emg2qwerty.transforms.ToTensor
+  fields:
+  - emg_left
+  - emg_right
+band_rotation:
+  _target_: emg2qwerty.transforms.ForEach
+  transform:
+    _target_: emg2qwerty.transforms.RandomBandRotation
+    offsets:
+    - -1
+    - 0
+    - 1
+temporal_jitter:
+  _target_: emg2qwerty.transforms.TemporalAlignmentJitter
+  max_offset: 120
+logspec:
+  _target_: emg2qwerty.transforms.LogSpectrogram
+  n_fft: 64
+  hop_length: 16
+specaug:
+  _target_: emg2qwerty.transforms.SpecAugment
+  n_time_masks: 3
+  time_mask_param: 25
+  n_freq_masks: 2
+  freq_mask_param: 4
+transforms:
+  train:
+  - ${to_tensor}
+  - ${band_rotation}
+  - ${temporal_jitter}
+  - ${logspec}
+  - ${specaug}
+  val:
+  - ${to_tensor}
+  - ${logspec}
+  test: ${transforms.val}
+module:
+  _target_: emg2qwerty.lightning.CNNTransformerCTCModule
+  in_features: 528
+  mlp_features:
+  - 384
+  cnn_channels:
+  - 256
+  - 256
+  cnn_kernel_size: 3
+  cnn_stride: 2
+  d_model: 256
+  nhead: 4
+  num_transformer_layers: 4
+  dim_feedforward: 1024
+  dropout: 0.1
+datamodule:
+  _target_: emg2qwerty.lightning.WindowedEMGDataModule
+  window_length: 8000
+  padding:
+  - 1800
+  - 200
+  test_window_length: 8000
+  test_padding:
+  - 1800
+  - 200
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.001
+lr_scheduler:
+  scheduler:
+    _target_: pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR
+    warmup_epochs: 10
+    max_epochs: ${trainer.max_epochs}
+    warmup_start_lr: 1.0e-08
+    eta_min: 1.0e-06
+  interval: epoch
+decoder:
+  _target_: emg2qwerty.decoder.CTCBeamDecoder
+  beam_size: 50
+  max_labels_per_timestep: 10
+  lm_path: null
+  lm_weight: 2.0
+  insertion_bonus: 2.0
+  delete_key: Key.backspace
+seed: 1501
+batch_size: 32
+num_workers: 4
+train: false
+checkpoint: best.ckpt
+monitor_metric: val/CER
+monitor_mode: min
+trainer:
+  accelerator: gpu
+  devices: 1
+  num_nodes: 1
+  max_epochs: 150
+  default_root_dir: ${hydra:runtime.output_dir}
+callbacks:
+- _target_: pytorch_lightning.callbacks.LearningRateMonitor
+- _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  dirpath: ${hydra:runtime.output_dir}/checkpoints
+  monitor: ${monitor_metric}
+  mode: ${monitor_mode}
+  save_last: true
+  verbose: true
+
+[2026-03-13 05:08:32,055][__main__][INFO] - Instantiating LightningModule {'_target_': 'emg2qwerty.lightning.CNNTransformerCTCModule', 'in_features': 528, 'mlp_features': [384], 'cnn_channels': [256, 256], 'cnn_kernel_size': 3, 'cnn_stride': 2, 'd_model': 256, 'nhead': 4, 'num_transformer_layers': 4, 'dim_feedforward': 1024, 'dropout': 0.1}
+[2026-03-13 05:08:32,141][__main__][INFO] - Loading module from checkpoint best.ckpt
+[2026-03-13 05:08:32,248][__main__][INFO] - Instantiating LightningDataModule {'_target_': 'emg2qwerty.lightning.WindowedEMGDataModule', 'window_length': 8000, 'padding': [1800, 200], 'test_window_length': 8000, 'test_padding': [1800, 200]}
+Validation: 0it [00:00, ?it/s]Validation:   0%|          | 0/7 [00:00<?, ?it/s]Validation DataLoader 0:   0%|          | 0/7 [00:00<?, ?it/s]Validation DataLoader 0:  14%|█▍        | 1/7 [00:24<02:29, 25.00s/it]Validation DataLoader 0:  29%|██▊       | 2/7 [00:49<02:02, 24.56s/it]Validation DataLoader 0:  43%|████▎     | 3/7 [01:13<01:37, 24.35s/it]Validation DataLoader 0:  57%|█████▋    | 4/7 [01:37<01:12, 24.32s/it]Validation DataLoader 0:  71%|███████▏  | 5/7 [02:01<00:48, 24.25s/it]Validation DataLoader 0:  86%|████████▌ | 6/7 [02:25<00:24, 24.24s/it]Validation DataLoader 0: 100%|██████████| 7/7 [02:40<00:00, 22.93s/it]Validation DataLoader 0: 100%|██████████| 7/7 [02:40<00:00, 22.93s/it]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃      Validate metric      ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│          val/CER          │    11.763402938842773     │
+│          val/DER          │    1.7058041095733643     │
+│          val/IER          │     2.835622549057007     │
+│          val/SER          │     7.221976280212402     │
+│         val/loss          │    0.5399672389030457     │
+└───────────────────────────┴───────────────────────────┘
+Testing: 0it [00:00, ?it/s]Testing:   0%|          | 0/9 [00:00<?, ?it/s]Testing DataLoader 0:   0%|          | 0/9 [00:00<?, ?it/s]Testing DataLoader 0:  11%|█         | 1/9 [00:24<03:15, 24.38s/it]Testing DataLoader 0:  22%|██▏       | 2/9 [00:48<02:50, 24.32s/it]Testing DataLoader 0:  33%|███▎      | 3/9 [01:12<02:25, 24.23s/it]Testing DataLoader 0:  44%|████▍     | 4/9 [01:36<02:00, 24.20s/it]Testing DataLoader 0:  56%|█████▌    | 5/9 [02:01<01:37, 24.32s/it]Testing DataLoader 0:  67%|██████▋   | 6/9 [02:25<01:12, 24.31s/it]Testing DataLoader 0:  78%|███████▊  | 7/9 [02:49<00:48, 24.28s/it]Testing DataLoader 0:  89%|████████▉ | 8/9 [03:14<00:24, 24.25s/it]Testing DataLoader 0: 100%|██████████| 9/9 [03:32<00:00, 23.66s/it]Testing DataLoader 0: 100%|██████████| 9/9 [03:32<00:00, 23.66s/it]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test/CER          │    12.992637634277344     │
+│         test/DER          │    1.7323516607284546     │
+│         test/IER          │    2.9883065223693848     │
+│         test/SER          │     8.271979331970215     │
+│         test/loss         │    0.6014225482940674     │
+└───────────────────────────┴───────────────────────────┘
+{'val_metrics': [{'val/loss': 0.5399672389030457,
+                  'val/CER': 11.763402938842773,
+                  'val/IER': 2.835622549057007,
+                  'val/DER': 1.7058041095733643,
+                  'val/SER': 7.221976280212402}],
+ 'test_metrics': [{'test/loss': 0.6014225482940674,
+                   'test/CER': 12.992637634277344,
+                   'test/IER': 2.9883065223693848,
+                   'test/DER': 1.7323516607284546,
+                   'test/SER': 8.271979331970215}],
+ 'best_checkpoint': ''}

@@ -1,4 +1,22 @@
-## Best Result
+## Best Result w/ Beam Decoder
+
+| Validate metric | DataLoader 0          |
+|-----------------|----------------------|
+| val/CER         | 11.763402938842773   |
+| val/DER         | 1.7058041095733643   |
+| val/IER         | 2.835622549057007    |
+| val/SER         | 7.221976280212402    |
+| val/loss        | 0.5399672389030457   |
+
+| Test metric     | DataLoader 0          |
+|-----------------|----------------------|
+| test/CER        | 12.992637634277344   |
+| test/DER        | 1.7323516607284546   |
+| test/IER        | 2.9883065223693848   |
+| test/SER        | 8.271979331970215    |
+| test/loss       | 0.6014225482940674   |
+
+## Result w/ Greedy Decoder
 
 | Validate metric | DataLoader 0          |
 |-----------------|----------------------|

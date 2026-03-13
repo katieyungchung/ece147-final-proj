@@ -1,1 +1,1 @@
-logs/2026-03-13/02-18-14/job0_batch_size=16,model=cnn_transformer_ctc,module.dropout=0.1,optimizer.lr=0.001,trainer.max_epochs=40/checkpoints/epoch=39-step=9600.ckpt
+/home/katiechung/ece147-final-proj/logs/2026-03-13/04-02-33/checkpoints/epoch=88-step=21360.ckpt
