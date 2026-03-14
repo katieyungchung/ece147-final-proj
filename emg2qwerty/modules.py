@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 import torch
 from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class SpectrogramNorm(nn.Module):
@@ -280,52 +281,79 @@ class TDSConvEncoder(nn.Module):
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
 
 
-from collections.abc import Sequence
 
-class RNNEncoder(torch.nn.Module):
-    def __init__(self, num_features, hidden_size=384, num_layers=3, dropout=0.2):
+class GRUEncoder(nn.Module):
+
+    def __init__(
+        self,
+        num_features: int,
+        hidden_size: int,
+        num_layers: int = 1,
+        bidirectional: bool = False,
+        dropout: float = 0.0,
+    ) -> None:
         super().__init__()
-        self.rnn = torch.nn.RNN(
+        self.hidden_size = hidden_size
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
+
+        self.gru = nn.GRU(
             input_size=num_features,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            dropout=dropout if num_layers > 1 else 0.0,
-            bidirectional=True,
             batch_first=False,
+            bidirectional=bidirectional,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
-        self.proj = torch.nn.Linear(hidden_size * 2, num_features)
-        self.layer_norm = torch.nn.LayerNorm(num_features)
 
-    def forward(self, inputs):
-        x, _ = self.rnn(inputs)
-        x = self.proj(x)
-        return self.layer_norm(x)
+    def forward(self, inputs: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
+        
+        if lengths is None:
+            output, _ = self.gru(inputs)
+            return output
+
+        
+        T = inputs.shape[0]
+        lengths_cpu = lengths.detach().to(device="cpu")
+        packed = pack_padded_sequence(inputs, lengths_cpu, enforce_sorted=False)
+        packed_out, _ = self.gru(packed)
+        output, _ = pad_packed_sequence(packed_out, total_length=T)
+        return output
 
 
-class CNNRNNEncoder(torch.nn.Module):
-    def __init__(self, num_features, block_channels=(24,24), kernel_width=32,
-                 hidden_size=384, num_rnn_layers=2, dropout=0.2):
+class LSTMEncoder(nn.Module):
+    
+    def __init__(
+        self,
+        num_features: int,
+        hidden_size: int,
+        num_layers: int = 1,
+        bidirectional: bool = False,
+        dropout: float = 0.0,
+    ) -> None:
         super().__init__()
-        tds_blocks = []
-        for channels in block_channels:
-            tds_blocks.extend([
-                TDSConv2dBlock(channels, num_features // channels, kernel_width),
-                TDSFullyConnectedBlock(num_features),
-            ])
-        self.cnn = torch.nn.Sequential(*tds_blocks)
-        self.rnn = torch.nn.RNN(
+        self.hidden_size = hidden_size
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
+
+        self.lstm = nn.LSTM(
             input_size=num_features,
             hidden_size=hidden_size,
-            num_layers=num_rnn_layers,
-            dropout=dropout if num_rnn_layers > 1 else 0.0,
-            bidirectional=True,
+            num_layers=num_layers,
             batch_first=False,
+            bidirectional=bidirectional,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
-        self.proj = torch.nn.Linear(hidden_size * 2, num_features)
-        self.layer_norm = torch.nn.LayerNorm(num_features)
 
-    def forward(self, inputs):
-        x = self.cnn(inputs)
-        x, _ = self.rnn(x)
-        x = self.proj(x)
-        return self.layer_norm(x)
+    def forward(self, inputs: torch.Tensor, lengths: torch.Tensor | None = None) -> torch.Tensor:
+        
+        if lengths is None:
+            output, _ = self.lstm(inputs)
+            return output
+
+        T = inputs.shape[0]
+        lengths_cpu = lengths.detach().to(device="cpu")
+        packed = pack_padded_sequence(inputs, lengths_cpu, enforce_sorted=False)
+        packed_out, _ = self.lstm(packed)
+        output, _ = pad_packed_sequence(packed_out, total_length=T)
+        return output

@@ -1,0 +1,17 @@
+# @package _global_
+# LSTM-based CTC model. Uses the same preprocessing and datamodule as tds_conv_ctc,
+# so it runs on the same preprocessed EMG data (log spectrogram, windowing, etc.).
+module:
+  _target_: emg2qwerty.lightning.LSTMCTCModule
+  in_features: 528  # freq * channels = (n_fft // 2 + 1) * 16
+  mlp_features: [384] # [384]
+  hidden_size: 768 # 512
+  num_layers: 3 # 2
+  bidirectional: true
+  dropout: 0.3 # 0.2 
+
+datamodule:
+  _target_: emg2qwerty.lightning.WindowedEMGDataModule
+  window_length: 8000  # 4 sec windows for 2kHz EMG
+  padding: [1800, 200]  # 900ms past context, 100ms future context
+
