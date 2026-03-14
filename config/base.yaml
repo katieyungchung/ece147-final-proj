@@ -12,7 +12,7 @@ seed: 1501
 batch_size: 32
 num_workers: 8  # Number of workers for dataloading
 train: True  # Whether to train or only run validation and test
-checkpoint: null
+checkpoint: logs/2026-03-14/04-37-53/job0_trainer.devices=1,user=single_user/checkpoints/last.ckpt
 monitor_metric: val/CER
 monitor_mode: min
 

@@ -44,6 +44,8 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         train_transform: Transform[np.ndarray, torch.Tensor],
         val_transform: Transform[np.ndarray, torch.Tensor],
         test_transform: Transform[np.ndarray, torch.Tensor],
+        test_window: int | None = None,
+        test_pad: tuple[int, int] | None = None
     ) -> None:
         super().__init__()
 
@@ -60,6 +62,10 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         self.train_transform = train_transform
         self.val_transform = val_transform
         self.test_transform = test_transform
+        
+        self.test_window = test_window
+        self.test_pad = (0, 0) if test_pad is None else test_pad
+        
 
     def setup(self, stage: str | None = None) -> None:
         self.train_dataset = ConcatDataset(
@@ -93,10 +99,10 @@ class WindowedEMGDataModule(pl.LightningDataModule):
                     transform=self.test_transform,
                     # Feed the entire session at once without windowing/padding
                     # at test time for more realism
-                    window_length=None,
-                    padding=(0, 0),
-                    # window_length=self.window_length,
-                    # padding=self.padding,
+                    # window_length=None,
+                    # padding=(0, 0),
+                    window_length=self.test_window,
+                    padding=self.test_pad,
                     jitter=False,
                 )
                 for hdf5_path in self.test_sessions
@@ -130,9 +136,11 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         # fed at once. Limit batch size to 1 to fit within GPU memory and
         # avoid any influence of padding (while collating multiple batch items)
         # in test scores.
+        test_batch_size = self.batch_size if self.test_window is not None else 1
         return DataLoader(
             self.test_dataset,
-            batch_size=1,
+            # batch_size=1,
+            batch_size=test_batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=WindowedEMGDataset.collate,
